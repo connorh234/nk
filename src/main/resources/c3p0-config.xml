@@ -1,0 +1,29 @@
+<c3p0-config>
+            
+    <named-config name="HIVE-CLUSTER">
+        
+        <!-- DB Connection Properties -->
+        <property name="driverClass">org.mariadb.jdbc.Driver</property>
+        <property name="jdbcUrl">jdbc:mariadb:aurora://dev-db-instance.cjtjrodih2us.us-east-1.rds.amazonaws.com:3306/connorh</property>
+        
+        <property name="initialPoolSize">5</property>
+        <property name="minPoolSize">5</property>
+        <property name="maxPoolSize">5</property>
+        
+        <!-- DB Outage Recovery -->
+        <property name="acquireRetryDelay">500</property>
+        <property name="acquireRetryAttempts">5</property>  
+
+        <!-- Connection Testing -->
+        <property name="preferredTestQuery">SELECT 1</property>
+        <property name="testConnectionOnCheckin">true</property>
+        <property name="idleConnectionTestPeriod">10</property>
+        
+    </named-config>
+    
+    
+   
+       
+</c3p0-config>
+
+
