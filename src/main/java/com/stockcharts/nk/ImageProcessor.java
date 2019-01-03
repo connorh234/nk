@@ -82,67 +82,49 @@ public class ImageProcessor {
         S3Utils.putImg(Constants.DETAIL_BUCKET, detailImageId, faceDetailImage);
 
         // Sam - this commented out block is going to be the new face matching methodology.  What exists here is an older version which I'm ditching
-//        List<com.amazonaws.services.rekognition.model.FaceMatch> matchingFaces = RekognitionCollection.getMatchingFacesInCollection(Constants.DETAIL_BUCKET, detailImageId, Constants.TEST_COLLECTION, faceSimilarityThreshold);
-//        
-//        Set<String> sourceImages = new HashSet<>();
-//        for (com.amazonaws.services.rekognition.model.FaceMatch match : matchingFaces) {
-//            sourceImages.add(match.getFace().getExternalImageId());
-//        }
-//        
-//        List<FaceMatch> matchingEntries;
-//        try {
-//            matchingEntries = FaceMatchDAO.getFaceMatchesForImages(sourceImages);
-//        } catch (SQLException e) {
-//            return null;
-//        }
-//        
-//        Map<String,Integer> faceOccurances = countFaceOccurrances(matchingEntries);
-//        
-//        List<Map.Entry<String, Integer>> sortedFaceSet = new LinkedList<>(faceOccurances.entrySet());
-//        Collections.sort(sortedFaceSet, new Comparator<Map.Entry<String, Integer>>() {
-//            @Override
-//            public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) {
-//                return o1.getValue().compareTo(o2.getValue());
-//            }
-//        });
+        List<com.amazonaws.services.rekognition.model.FaceMatch> matchingFaces = RekognitionCollection.getMatchingFacesInCollection(Constants.DETAIL_BUCKET, detailImageId, Constants.TEST_COLLECTION, faceSimilarityThreshold);
         
-        // Pick face with highest frequency
-        // Ensure face matches are N times larger than nearest match
-        
-        // Determine which collection (person) matches this face
-        String matchingCollectionId = null;
-        for (String collectionId : RekognitionCollection.getCollectionIds()) {
-            
-            int numFacesInCollection = RekognitionCollection.listFacesInCollection(collectionId).size();
-            int numFacesMatched = RekognitionCollection.getMatchingFacesInCollection(Constants.DETAIL_BUCKET, detailImageId, collectionId, faceSimilarityThreshold).size();
-            
-            // TODO - Copare ratio of matches within collection
-            if (numFacesInCollection == numFacesMatched) {
-                matchingCollectionId = collectionId;
-                break;
-            } else {
-                System.out.println("Some photos didn't match - collectionID: ");
-            }
+        Set<String> sourceImages = new HashSet<>();
+        for (com.amazonaws.services.rekognition.model.FaceMatch match : matchingFaces) {
+            sourceImages.add(match.getFace().getExternalImageId());
         }
-
-        // If no match was found, generate a new Collection/Face
-        if (matchingCollectionId == null) {
-            System.out.println(">>>>>>>>>>>>> GENERATING NEW COLLECTION <<<<<<<<<<<<<<");
-            matchingCollectionId = UUID.randomUUID().toString();
-            RekognitionCollection.createCollection(matchingCollectionId);
-            Face face = new Face(UUID.randomUUID().toString(), matchingCollectionId, "unknown");
+        
+        List<FaceMatch> matchingEntries;
+        try {
+            matchingEntries = FaceMatchDAO.getFaceMatchesForImages(sourceImages);
+        } catch (SQLException e) {
+            return null;
+        }
+        
+        Map<String,Integer> faceOccurances = countFaceOccurrances(matchingEntries);
+        
+        String matchingFaceId;
+        if (faceOccurances.isEmpty()) {
+            matchingFaceId = UUID.randomUUID().toString(); 
+            Face face = new Face(matchingFaceId, "unknown");
             try {
                 FaceDAO.putFace(face);
             } catch (SQLException e) {
                 
             }
-        }
+        } else {
+            List<Map.Entry<String, Integer>> sortedFaceSet = new LinkedList<>(faceOccurances.entrySet());
+            
+            Collections.sort(sortedFaceSet, new Comparator<Map.Entry<String, Integer>>() {
+                @Override
+                public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) {
+                    return o2.getValue().compareTo(o1.getValue());
+                }
+            });
 
-        // Index new photo into its collection
-        RekognitionCollection.indexPhoto(Constants.DETAIL_BUCKET, detailImageId, matchingCollectionId, 1);
+            matchingFaceId = sortedFaceSet.get(0).getKey();
+        }
+        
+        // Index new photo into the collection
+        RekognitionCollection.indexPhoto(Constants.DETAIL_BUCKET, detailImageId, Constants.TEST_COLLECTION, 1);
         
         // Create & persist new FaceMatch object
-        FaceMatch faceMatch = new FaceMatch(UUID.randomUUID().toString(), sourceImageName, matchingCollectionId, faceDetectedInImage.getBoundingBox());
+        FaceMatch faceMatch = new FaceMatch(UUID.randomUUID().toString(), sourceImageName, matchingFaceId, faceDetectedInImage.getBoundingBox());
         try {
             FaceMatchDAO.putFaceMatch(faceMatch);
         } catch (SQLException e) {
