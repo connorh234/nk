@@ -10,8 +10,8 @@ import java.awt.image.*;
 
 import com.stockcharts.nk.data.Face;
 import com.stockcharts.nk.data.FaceDAO;
-import com.stockcharts.nk.data.FaceMatch;
-import com.stockcharts.nk.data.FaceMatchDAO;
+import com.stockcharts.nk.data.KurokoFaceMatch;
+import com.stockcharts.nk.data.KurokoFaceMatchDAO;
 
 import com.amazonaws.services.rekognition.model.*;
 import org.json.JSONObject;
@@ -24,19 +24,19 @@ public class ImageProcessor {
     
     /*
         Notes
-        - Currently swapping to FaceMatch model where a single large collection is used & the mode of all matched faces is selected
+        - Currently swapping to KurokoFaceMatch model where a single large collection is used & the mode of all matched faces is selected
         - Will have implications on when/how faces are indexed
         - Will have implication on when/how FaceMatches are persisted
         - Will want to program "re-analysis" capabilities into system
             - Go back and re-assign matches if underlying data has changed enough to warrant better match
     */
  
-    public static List<FaceMatch> processImage(String bucketName, String sourceImageName, float faceSimilarityThreshold, float maxYaw) throws IOException, SQLException {
+    public static List<KurokoFaceMatch> processImage(String bucketName, String sourceImageName, float faceSimilarityThreshold, float maxYaw) throws IOException, SQLException {
            
         // Load source photo from S3
         BufferedImage srcImage = S3Utils.getS3Image(bucketName, sourceImageName);            
         
-        List<FaceMatch> faceMatches = new LinkedList<>();
+        List<KurokoFaceMatch> faceMatches = new LinkedList<>();
         
         List<FaceDetail> detectedFaces = Rekognition.detectFacesInImage(bucketName, sourceImageName);
         
@@ -71,62 +71,47 @@ public class ImageProcessor {
         return faces;
     }
     
-    private static FaceMatch processDetectedFace(FaceDetail faceDetectedInImage, BufferedImage srcImage, String sourceImageName, float faceSimilarityThreshold) throws IOException {
+    private static KurokoFaceMatch processDetectedFace(FaceDetail faceDetectedInImage, BufferedImage srcImage, String sourceImageName, float faceSimilarityThreshold) throws IOException, SQLException {
         
-        
-        // Generate cropped photo of identified face
         BufferedImage faceDetailImage = getBoundingBoxSubImage(srcImage, faceDetectedInImage);
             
-        // Save cropped img to S3
         String detailImageId = UUID.randomUUID().toString() + ".png";
         S3Utils.putImg(Constants.DETAIL_BUCKET, detailImageId, faceDetailImage);
 
-        // Sam - this commented out block is going to be the new face matching methodology.  What exists here is an older version which I'm ditching
-        List<com.amazonaws.services.rekognition.model.FaceMatch> matchingFaces = RekognitionCollection.getMatchingFacesInCollection(Constants.DETAIL_BUCKET, detailImageId, Constants.TEST_COLLECTION, faceSimilarityThreshold);
+        List<FaceMatch> matchingFaces = RekognitionCollection.getMatchingFacesInCollection(Constants.DETAIL_BUCKET, detailImageId, Constants.TEST_COLLECTION, faceSimilarityThreshold);
         
-        Set<String> sourceImages = new HashSet<>();
-        for (com.amazonaws.services.rekognition.model.FaceMatch match : matchingFaces) {
-            sourceImages.add(match.getFace().getExternalImageId());
+        String matchingFaceId = null;
+        
+        if (matchingFaces.isEmpty() == false) {
+            
+            Set<String> faceMatchSourceImageKeys = new HashSet<>();
+            for (FaceMatch match : matchingFaces) {
+                faceMatchSourceImageKeys.add(match.getFace().getExternalImageId());
+            }
+
+            List<KurokoFaceMatch> kurokoFaceMatches = KurokoFaceMatchDAO.getFaceMatchesForImages(faceMatchSourceImageKeys);
+            
+            matchingFaceId = calculateMatchingFaceFromOccurrenceSet(kurokoFaceMatches);
+        
         }
         
-        List<FaceMatch> matchingEntries;
-        try {
-            matchingEntries = FaceMatchDAO.getFaceMatchesForImages(sourceImages);
-        } catch (SQLException e) {
-            return null;
-        }
-        
-        Map<String,Integer> faceOccurances = countFaceOccurrances(matchingEntries);
-        
-        String matchingFaceId;
-        if (faceOccurances.isEmpty()) {
+        if (matchingFaceId == null) {
             matchingFaceId = UUID.randomUUID().toString(); 
             Face face = new Face(matchingFaceId, "unknown");
             try {
                 FaceDAO.putFace(face);
             } catch (SQLException e) {
-                
+                // retry
             }
-        } else {
-            List<Map.Entry<String, Integer>> sortedFaceSet = new LinkedList<>(faceOccurances.entrySet());
-            
-            Collections.sort(sortedFaceSet, new Comparator<Map.Entry<String, Integer>>() {
-                @Override
-                public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) {
-                    return o2.getValue().compareTo(o1.getValue());
-                }
-            });
-
-            matchingFaceId = sortedFaceSet.get(0).getKey();
-        }
+        } 
         
         // Index new photo into the collection
         RekognitionCollection.indexPhoto(Constants.DETAIL_BUCKET, detailImageId, Constants.TEST_COLLECTION, 1);
         
-        // Create & persist new FaceMatch object
-        FaceMatch faceMatch = new FaceMatch(UUID.randomUUID().toString(), sourceImageName, matchingFaceId, faceDetectedInImage.getBoundingBox());
+        // Create & persist new KurokoFaceMatch object
+        KurokoFaceMatch faceMatch = new KurokoFaceMatch(UUID.randomUUID().toString(), sourceImageName, matchingFaceId, faceDetectedInImage.getBoundingBox());
         try {
-            FaceMatchDAO.putFaceMatch(faceMatch);
+            KurokoFaceMatchDAO.putFaceMatch(faceMatch);
         } catch (SQLException e) {
 
         }
@@ -134,11 +119,11 @@ public class ImageProcessor {
         return faceMatch;
     }
     
-    private static Map<String, Integer> countFaceOccurrances(List<FaceMatch> faceMatches) {
-        
+    private static Map<String, Integer> countFaceOccurrences(List<KurokoFaceMatch> faceMatches) {
+                
         Map<String, Integer> tallies = new HashMap<>();
         
-        for (FaceMatch match : faceMatches) {
+        for (KurokoFaceMatch match : faceMatches) {
             
             String faceId = match.getFaceId();
             
@@ -151,6 +136,29 @@ public class ImageProcessor {
         }
         
         return tallies;
+    }
+    
+    private static String calculateMatchingFaceFromOccurrenceSet(List<KurokoFaceMatch> faceMatches) {
+        
+        if (faceMatches.isEmpty()) return null;
+        
+        Map<String,Integer> faceOccurenceCounts = countFaceOccurrences(faceMatches);
+
+        List<Map.Entry<String, Integer>> sortedFaceSet = new LinkedList<>(faceOccurenceCounts.entrySet());
+            
+        Comparator<Map.Entry<String, Integer>> MOST_FREQUENT_FIRST = new Comparator<Map.Entry<String, Integer>>() {
+            @Override
+            public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) {
+                return o2.getValue().compareTo(o1.getValue());
+            }
+        };
+        
+        Collections.sort(sortedFaceSet, MOST_FREQUENT_FIRST);
+        
+        // TODO - Implement an algorithm to make a more intelligent decision based off of face matches.
+        // Currently just selecting the most frequent face.
+        
+        return sortedFaceSet.get(0).getKey();
     }
     
     private static BufferedImage getBoundingBoxSubImage(BufferedImage sourceImage, FaceDetail face) {

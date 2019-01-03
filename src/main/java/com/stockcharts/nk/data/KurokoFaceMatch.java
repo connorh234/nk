@@ -6,7 +6,7 @@ import java.sql.*;
 import java.util.*;
 import org.json.JSONObject;
 
-public class FaceMatch {
+public class KurokoFaceMatch {
 
     private final String id;
 
@@ -15,7 +15,7 @@ public class FaceMatch {
     
     private final BoundingBox boundingBox;
     
-    public FaceMatch(String id, String image, String faceId, BoundingBox boundingBox) {
+    public KurokoFaceMatch(String id, String image, String faceId, BoundingBox boundingBox) {
         this.id = id;
         this.imageId = image;
         this.faceId = faceId;
@@ -47,7 +47,7 @@ public class FaceMatch {
         return toJSONObject().toString(3);
     }
     
-    private static FaceMatch fromResultRow(ResultSet rs) throws SQLException {
+    private static KurokoFaceMatch fromResultRow(ResultSet rs) throws SQLException {
                 
         String id = rs.getString("id");
         String image = rs.getString("imageId");
@@ -62,11 +62,11 @@ public class FaceMatch {
                 .withHeight(boundingBoxJO.getFloat("height"))
                 .withWidth(boundingBoxJO.getFloat("width"));
         
-        return new FaceMatch(id, image, faceId, boundingBox);
+        return new KurokoFaceMatch(id, image, faceId, boundingBox);
     }
     
-    public static List<FaceMatch> fromResultSet(ResultSet rs) throws SQLException {
-        List<FaceMatch> matches = new LinkedList<>();
+    public static List<KurokoFaceMatch> fromResultSet(ResultSet rs) throws SQLException {
+        List<KurokoFaceMatch> matches = new LinkedList<>();
         while (rs.next()) {
             matches.add(fromResultRow(rs));
         }

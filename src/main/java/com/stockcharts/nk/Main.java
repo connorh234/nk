@@ -10,7 +10,7 @@ import java.util.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mchange.v2.c3p0.ComboPooledDataSource;
-import com.stockcharts.nk.data.FaceMatch;
+import com.stockcharts.nk.data.KurokoFaceMatch;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 
@@ -64,12 +64,12 @@ public class Main {
             
             System.out.println("========== " + imageName + " ==================================================");
             
-            List<FaceMatch> faceMatch = ImageProcessor.processImage(Constants.MAIN_BUCKET, imageName, FACE_THRESHOLD, MAX_YAW);
+            List<KurokoFaceMatch> faceMatch = ImageProcessor.processImage(Constants.MAIN_BUCKET, imageName, FACE_THRESHOLD, MAX_YAW);
         
             
             System.out.println(System.currentTimeMillis() - start + "ms");
             
-            for (FaceMatch match : faceMatch) {
+            for (KurokoFaceMatch match : faceMatch) {
                 System.out.println(match);
             }
         
