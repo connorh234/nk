@@ -101,7 +101,7 @@ public class ImageProcessor {
             try {
                 FaceDAO.putFace(face);
             } catch (SQLException e) {
-                // retry
+                // retry(?)
             }
         } 
         
@@ -138,13 +138,14 @@ public class ImageProcessor {
         return tallies;
     }
     
+    /* Given a list of KurokoFaceMatches which correspond to Rekognition collection matches, determine the face in the source image */
     private static String calculateMatchingFaceFromOccurrenceSet(List<KurokoFaceMatch> faceMatches) {
         
         if (faceMatches.isEmpty()) return null;
         
-        Map<String,Integer> faceOccurenceCounts = countFaceOccurrences(faceMatches);
+        Map<String,Integer> faceOccurrenceCounts = countFaceOccurrences(faceMatches);
 
-        List<Map.Entry<String, Integer>> sortedFaceSet = new LinkedList<>(faceOccurenceCounts.entrySet());
+        List<Map.Entry<String, Integer>> sortedOccurrenceSet = new LinkedList<>(faceOccurrenceCounts.entrySet());
             
         Comparator<Map.Entry<String, Integer>> MOST_FREQUENT_FIRST = new Comparator<Map.Entry<String, Integer>>() {
             @Override
@@ -153,14 +154,15 @@ public class ImageProcessor {
             }
         };
         
-        Collections.sort(sortedFaceSet, MOST_FREQUENT_FIRST);
+        Collections.sort(sortedOccurrenceSet, MOST_FREQUENT_FIRST);
         
         // TODO - Implement an algorithm to make a more intelligent decision based off of face matches.
         // Currently just selecting the most frequent face.
         
-        return sortedFaceSet.get(0).getKey();
+        return sortedOccurrenceSet.get(0).getKey();
     }
     
+    /* Generate a cropped image based on coordinates provided by AWS BoundingBox */
     private static BufferedImage getBoundingBoxSubImage(BufferedImage sourceImage, FaceDetail face) {
         
         int imgHeight = sourceImage.getHeight();
